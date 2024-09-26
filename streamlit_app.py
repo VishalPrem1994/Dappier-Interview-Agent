@@ -1,56 +1,101 @@
 import streamlit as st
-from openai import OpenAI
+from langchain_community.vectorstores import FAISS
+from langchain_openai import ChatOpenAI, OpenAIEmbeddings, OpenAI
+from langchain_text_splitters import RecursiveCharacterTextSplitter
+from langchain.chains.combine_documents import create_stuff_documents_chain
+from langchain_core.prompts import ChatPromptTemplate, PromptTemplate
+from langchain.chains import create_retrieval_chain
+
+
+import os
 
 # Show title and description.
-st.title("💬 Chatbot")
+st.title("💬 Interview Assistant")
 st.write(
-    "This is a simple chatbot that uses OpenAI's GPT-3.5 model to generate responses. "
-    "To use this app, you need to provide an OpenAI API key, which you can get [here](https://platform.openai.com/account/api-keys). "
-    "You can also learn how to build this app step by step by [following our tutorial](https://docs.streamlit.io/develop/tutorials/llms/build-conversational-apps)."
+    "This is a simple Interviewer that asks questions based on the Job Description Provided. \nAfter 4 Questions it will evaluate the candidate based on the responses."
 )
 
-# Ask user for their OpenAI API key via `st.text_input`.
-# Alternatively, you can store the API key in `./.streamlit/secrets.toml` and access it
-# via `st.secrets`, see https://docs.streamlit.io/develop/concepts/connections/secrets-management
 openai_api_key = st.text_input("OpenAI API Key", type="password")
-if not openai_api_key:
-    st.info("Please add your OpenAI API key to continue.", icon="🗝️")
-else:
 
-    # Create an OpenAI client.
-    client = OpenAI(api_key=openai_api_key)
 
-    # Create a session state variable to store the chat messages. This ensures that the
-    # messages persist across reruns.
-    if "messages" not in st.session_state:
-        st.session_state.messages = []
+def format_docs(docs):
+    return "\n\n".join(doc.page_content for doc in docs)
 
-    # Display the existing chat messages via `st.chat_message`.
-    for message in st.session_state.messages:
-        with st.chat_message(message["role"]):
-            st.markdown(message["content"])
 
-    # Create a chat input field to allow the user to enter a message. This will display
-    # automatically at the bottom of the page.
-    if prompt := st.chat_input("What is up?"):
+def click_button():
+    st.session_state.pop("messages")
+    uploaded_file = None
 
-        # Store and display the current prompt.
-        st.session_state.messages.append({"role": "user", "content": prompt})
-        with st.chat_message("user"):
-            st.markdown(prompt)
 
-        # Generate a response using the OpenAI API.
-        stream = client.chat.completions.create(
-            model="gpt-3.5-turbo",
-            messages=[
-                {"role": m["role"], "content": m["content"]}
-                for m in st.session_state.messages
-            ],
-            stream=True,
-        )
+if openai_api_key:
+    os.environ["OPENAI_API_KEY"] = openai_api_key
+    uploaded_file = st.file_uploader("Upload Job Description", type=("txt", "md"))
 
-        # Stream the response to the chat using `st.write_stream`, then store it in 
-        # session state.
-        with st.chat_message("assistant"):
-            response = st.write_stream(stream)
-        st.session_state.messages.append({"role": "assistant", "content": response})
+    if (uploaded_file):
+
+
+        article = uploaded_file.read().decode()
+
+        text_splitter = RecursiveCharacterTextSplitter(chunk_size=2000, chunk_overlap=200)
+        splits = text_splitter.split_text(article)
+
+        vectorstore = FAISS.from_texts(texts=splits, embedding=OpenAIEmbeddings())
+        retriever = vectorstore.as_retriever(search_kwargs={"k": 6})
+
+        llm = ChatOpenAI(model="gpt-4o", openai_api_key=openai_api_key)
+        evaluation_llm = OpenAI(model="gpt-3.5-turbo-instruct", openai_api_key=openai_api_key)
+        # Define prompt template
+        template = """
+        You are an interview assistant for generating a single question based on a resume. You will be provided with all previous questions asked.
+        Use the provided context only to generate questions:
+
+        <context>
+        {context}
+        </context>
+
+        Previous Conversations: {input}
+
+
+        Generate just one question that is not part of the previous conversation and nothing else.
+
+        """
+
+        st.button('Clear Chat', on_click=click_button)
+
+        if "messages" not in st.session_state:
+            st.session_state["messages"] = [
+                {"role": "assistant", "content": "Tell me about yourself?"}
+            ]
+
+        for msg in st.session_state.messages:
+            st.chat_message(msg["role"]).write(msg["content"])
+        prompt = ChatPromptTemplate.from_template(template)
+
+        doc_chain = create_stuff_documents_chain(llm, prompt)
+        chain = create_retrieval_chain(retriever, doc_chain)
+
+        if prompt := st.chat_input():
+            if len(st.session_state.messages) >= 7:
+                st.session_state.messages.append({"role": "user", "content": prompt})
+                st.chat_message("user").write(prompt)
+                evaluation_template = """Evaluate the following responses of a candidate regarding a job.
+                                """ + str(st.session_state.messages) + """ 
+                               Respond with feedback on the candidate. The candidate should be able to give detailed responses to the questions asked to get a good score. 
+                               Be strict in your evaluation.
+                               Give a score out of 10 based on the candidate's experience with the skills required in the job description."""
+                response = evaluation_llm(evaluation_template)
+                st.session_state.messages.append({"role": "assistant", "content": response})
+                st.chat_message("assistant").write(response)
+            else:
+                st.session_state.messages.append({"role": "user", "content": prompt})
+
+                st.chat_message("user").write(prompt)
+                print(str(st.session_state.messages))
+                response = chain.invoke({"input": str(st.session_state.messages)})
+
+                msg = response["answer"]
+
+                st.session_state.messages.append({"role": "assistant", "content": msg})
+                st.chat_message("assistant").write(msg)
+
+

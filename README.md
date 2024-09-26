@@ -1,8 +1,8 @@
-# 💬 Chatbot template
+# 💬 Interview Assistant
 
-A simple Streamlit app that shows how to build a chatbot using OpenAI's GPT-3.5.
+This is a simple Interviewer that asks questions based on the Job Description Provided.
 
-[![Open in Streamlit](https://static.streamlit.io/badges/streamlit_badge_black_white.svg)](https://chatbot-template.streamlit.app/)
+[![Open in Streamlit](https://static.streamlit.io/badges/streamlit_badge_black_white.svg)](https://chatbot-cfo7ikgu1l7.streamlit.app/)
 
 ### How to run it on your own machine
 
