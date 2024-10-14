@@ -35,6 +35,6 @@ def get_matcher_template(linked_in_data, job_description):
         Job Description:
         {job_description}
         
-        Match the profile with the job description and provide a score out of 10 based on the match.
+        Match the profile with the job description and provide a integer score out of 10 based on the match.
         Return only the score and nothing else
         """
