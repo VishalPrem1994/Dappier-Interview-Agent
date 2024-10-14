@@ -19,7 +19,7 @@ def get_chat_completion_llm():
 
 
 def evaluate_candidate(profile_match_score):
-    evaluation_llm = get_instruct_llm()
+    evaluation_llm = get_chat_completion_llm()
     response = evaluation_llm(get_final_evaluation_template(profile_match_score,str(st.session_state.messages)))
     return response
 
